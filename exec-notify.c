@@ -1,3 +1,7 @@
+/*
+ * Derived from exec-notify.c by Sebastian Krahmer
+ * http://users.suse.com/~krahmer/exec-notify.c
+ */
 /* exec-notify, so you can watch your acrobat reader or vim executing "bash -c"
  * commands ;-)
  * Requires some 2.6.x Linux kernel with proc connector enabled.
@@ -64,19 +68,21 @@
 
 void handle_msg (struct cn_msg *cn_hdr)
 {
-	char cmdline[1024], fname1[1024], ids[1024], fname2[1024], buf[1024];
-	int r = 0, fd, i;
+	char cmdline[1024], fname1[1024], ids[1024], fname2[1024], buf[1024], link[1024], symlink[1024];
+	int r = 0, fd, i, strunc = 0, rlerror = 0, sempty = 0;
 	FILE *f = NULL;
 	struct proc_event *ev = (struct proc_event *)cn_hdr->data;
 
 	snprintf(fname1, sizeof(fname1), "/proc/%d/status", ev->event_data.exec.process_pid);
 	snprintf(fname2, sizeof(fname2), "/proc/%d/cmdline", ev->event_data.exec.process_pid);
+	snprintf(link, sizeof(link), "/proc/%d/exe", ev->event_data.exec.process_pid);
 
 	f = fopen(fname1, "r");
 	fd = open(fname2, O_RDONLY);
 
 	memset(&cmdline, 0, sizeof(cmdline));
 	memset(&ids, 0, sizeof(ids));
+	memset(&symlink, 0, sizeof(symlink));
 
 	while (f && fgets(buf, sizeof(buf), f) != NULL) {
 		if (strstr(buf, "Uid")) {
@@ -97,18 +103,27 @@ void handle_msg (struct cn_msg *cn_hdr)
 		}
 	}
 
+	ssize_t lsize = readlink(link, symlink, sizeof(symlink) - 1);
+	if (lsize == -1) {
+		rlerror = 1;	
+	} else if(lsize > sizeof(symlink)) {
+		strunc = 1;
+	} else if(lsize == 0) {
+		sempty = 1;
+	}
+
 	switch(ev->what){
 	case PROC_EVENT_FORK:
-		printf("FORK:parent(pid,tgid)=%d,%d\tchild(pid,tgid)=%d,%d\t[%s]\n",
+		printf("FORK:parent(pid,tgid)=%d,%d\tchild(pid,tgid)=%d,%d\t[%s][%s]\n",
 		       ev->event_data.fork.parent_pid,
 		       ev->event_data.fork.parent_tgid,
 		       ev->event_data.fork.child_pid,
-		       ev->event_data.fork.child_tgid, cmdline);
+		       ev->event_data.fork.child_tgid, cmdline, symlink);
 		break;
 	case PROC_EVENT_EXEC:
-		printf("EXEC:pid=%d,tgid=%d\t[%s]\t[%s]\n",
+		printf("EXEC:pid=%d,tgid=%d\t[%s]\t[%s][%s]\n",
 		       ev->event_data.exec.process_pid,
-		       ev->event_data.exec.process_tgid, ids, cmdline);
+		       ev->event_data.exec.process_tgid, ids, cmdline, symlink);
 		break;
 	case PROC_EVENT_EXIT:
 		printf("EXIT:pid=%d,%d\texit code=%d\n",
