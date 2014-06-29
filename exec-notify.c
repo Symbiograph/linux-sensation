@@ -1,6 +1,7 @@
 /*
  * Derived from exec-notify.c by Sebastian Krahmer
  * http://users.suse.com/~krahmer/exec-notify.c
+ * gcc exec-notify.c -ljansson
  */
 /* exec-notify, so you can watch your acrobat reader or vim executing "bash -c"
  * commands ;-)
@@ -47,6 +48,8 @@
 #include <linux/connector.h>
 #include <linux/netlink.h>
 #include <linux/cn_proc.h>
+
+#include <jansson.h>
 
 #define SEND_MESSAGE_LEN (NLMSG_LENGTH(sizeof(struct cn_msg) + \
 				       sizeof(enum proc_cn_mcast_op)))
@@ -112,29 +115,67 @@ void handle_msg (struct cn_msg *cn_hdr)
 		sempty = 1;
 	}
 
+	char *jchar;
+        json_t *jobject;
+
 	switch(ev->what){
 	case PROC_EVENT_FORK:
-		printf("FORK:parent(pid,tgid)=%d,%d\tchild(pid,tgid)=%d,%d\t[%s][%s]\n",
-		       ev->event_data.fork.parent_pid,
-		       ev->event_data.fork.parent_tgid,
-		       ev->event_data.fork.child_pid,
-		       ev->event_data.fork.child_tgid, cmdline, symlink);
+		jobject = json_pack(
+			"{ss si si si si ss ss}",
+			"type", "fork",
+			"parent_pid", ev->event_data.fork.parent_pid,
+			"parent_tgid", ev->event_data.fork.parent_tgid,
+			"child_pid", ev->event_data.fork.child_pid,
+			"child_tgid", ev->event_data.fork.child_tgid,
+			"cmdline", cmdline,
+			"symlink", symlink
+		);
+		jchar = json_dumps(jobject, JSON_PRESERVE_ORDER);
+		printf("%s\n", jchar);
+		free(jchar);
+		free(jobject);
 		break;
 	case PROC_EVENT_EXEC:
-		printf("EXEC:pid=%d,tgid=%d\t[%s]\t[%s][%s]\n",
-		       ev->event_data.exec.process_pid,
-		       ev->event_data.exec.process_tgid, ids, cmdline, symlink);
+		jobject = json_pack(
+			"{ss si si ss ss ss}",
+			"type", "exec",
+			"pid", ev->event_data.exec.process_pid,
+			"tgid", ev->event_data.exec.process_tgid,
+			"ids", ids,
+			"cmdline", cmdline,
+			"symlink", symlink
+		);
+		jchar = json_dumps(jobject, JSON_PRESERVE_ORDER);
+		printf("%s\n", jchar);
+		free(jchar);
+		free(jobject);
 		break;
 	case PROC_EVENT_EXIT:
-		printf("EXIT:pid=%d,%d\texit code=%d\n",
-		       ev->event_data.exit.process_pid,
-		       ev->event_data.exit.process_tgid,
-		       ev->event_data.exit.exit_code);
+		jobject = json_pack(
+			"{ss si si si}",
+			"type", "exit",
+			"pid", ev->event_data.exit.process_pid,
+			"tgid", ev->event_data.exit.process_tgid,
+			"exit_code", ev->event_data.exit.exit_code
+		);
+		jchar = json_dumps(jobject, JSON_PRESERVE_ORDER);
+		printf("%s\n", jchar);
+		free(jchar);
+		free(jobject);
 		break;
 	case PROC_EVENT_UID:
-		printf("UID:pid=%d,%d ruid=%d,euid=%d\n",
-			ev->event_data.id.process_pid, ev->event_data.id.process_tgid,
-			ev->event_data.id.r.ruid, ev->event_data.id.e.euid);
+		jobject = json_pack(
+			"{ss si si si si}",
+			"type", "uid",
+			"pid", ev->event_data.id.process_pid,
+			"tgid", ev->event_data.id.process_tgid,
+			"ruid", ev->event_data.id.r.ruid,
+			"euid", ev->event_data.id.e.euid
+		);
+		jchar = json_dumps(jobject, JSON_PRESERVE_ORDER);
+		printf("%s\n", jchar);
+		free(jchar);
+		free(jobject);
 		break;
 	default:
 		break;
@@ -191,7 +232,7 @@ int main(int argc, char **argv)
 	cn_hdr = (struct cn_msg *)NLMSG_DATA(nl_hdr);
 	mcop_msg = (enum proc_cn_mcast_op*)&cn_hdr->data[0];
 
-	printf("sending proc connector: PROC_CN_MCAST_LISTEN... ");
+	//printf("sending proc connector: PROC_CN_MCAST_LISTEN... ");
 	memset(buff, 0, sizeof(buff));
 	*mcop_msg = PROC_CN_MCAST_LISTEN;
 
@@ -212,13 +253,13 @@ int main(int argc, char **argv)
 		goto close_and_exit;
 	}
 
-	printf("sent\n");
+	//printf("sent\n");
 	if (*mcop_msg == PROC_CN_MCAST_IGNORE) {
 		rc = 0;
 		goto close_and_exit;
 	}
-	printf("Reading process events from proc connector.\n"
-		"Hit Ctrl-C to exit\n");
+	//printf("Reading process events from proc connector.\n"
+	//		"Hit Ctrl-C to exit\n");
 	for(memset(buff, 0, sizeof(buff)), from_nla_len = sizeof(from_nla);
 	  ; memset(buff, 0, sizeof(buff)), from_nla_len = sizeof(from_nla)) {
 		struct nlmsghdr *nlh = (struct nlmsghdr*)buff;
