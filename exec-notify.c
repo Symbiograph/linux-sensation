@@ -50,6 +50,7 @@
 #include <linux/cn_proc.h>
 
 #include <jansson.h>
+#include "stat-sense.h"
 
 #define SEND_MESSAGE_LEN (NLMSG_LENGTH(sizeof(struct cn_msg) + \
 				       sizeof(enum proc_cn_mcast_op)))
@@ -202,6 +203,9 @@ int main(int argc, char **argv)
 	if (argc != 1)
 		return 0;
 
+	// Get boot time
+	long long int btime = s_boot_time();
+
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	/*
@@ -289,4 +293,5 @@ close_and_exit:
 
 	return 0;
 }
+
 
